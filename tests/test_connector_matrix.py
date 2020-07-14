@@ -214,8 +214,6 @@ class TestConnectorMatrixAsync:
             },
         }
 
-    #    def setUp(self):
-    #        """Basic setting up for tests"""
     async def test_make_filter(self, connector):
         with amock.patch(api_string.format("send")) as patched_filter:
 
@@ -242,8 +240,10 @@ class TestConnectorMatrixAsync:
         mocker.patch("aiohttp.ClientSession", return_value=amock.MagicMock())
 
         patched_login = mocker.patch(
-            api_string.format("login"),
-            return_value=nio.LoginResponse(
+            api_string.format("login"), return_value=asyncio.Future()
+        )
+        patched_login.return_value.set_result(
+            nio.LoginResponse(
                 user_id="@opsdroid:localhost",
                 device_id="testdevice",
                 access_token="arbitrary string1",
