@@ -3,7 +3,7 @@ import pytest
 
 import nio
 
-from opsdroid.connector.matrix import ConnectorMatrix
+from opsdroid.connector.matrix.connector import ConnectorMatrix, MatrixException
 from opsdroid.core import OpsDroid
 from opsdroid.database.matrix import DatabaseMatrix
 
@@ -1678,7 +1678,8 @@ async def test_errors(patched_send, opsdroid_matrix, mocker, caplog, patched_uui
     db.connector._allow_encryption = True
     db.should_migrate = False
     db._single_state_key = False
-    await db.put("twim", {"hello": "world"})
+    with pytest.raises(MatrixException):
+        await db.put("twim", {"hello": "world"})
 
     assert ["Error decrypting enceventid while getting twim: testing(None)"] == [
         rec.message for rec in caplog.records
