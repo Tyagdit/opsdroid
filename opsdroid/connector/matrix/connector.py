@@ -1,23 +1,23 @@
 """Connector for Matrix (https://matrix.org)."""
-import re
-import logging
 import functools
+import json
+import logging
+import re
+from pathlib import Path
 from urllib.parse import urlparse
+from dataclasses import dataclass
 
 import aiohttp
+import nio
+import nio.responses
 
+from opsdroid import const, events
+from opsdroid.connector import Connector, register_event
 from voluptuous import Required
 
-from opsdroid.connector import Connector, register_event
-from opsdroid import events, const
-
-from .html_cleaner import clean
-from .create_events import MatrixEventCreator
 from . import events as matrixevents
-
-import nio
-import json
-from pathlib import Path
+from .create_events import MatrixEventCreator
+from .html_cleaner import clean
 
 _LOGGER = logging.getLogger(__name__)
 CONFIG_SCHEMA = {
@@ -33,6 +33,14 @@ CONFIG_SCHEMA = {
 }
 
 __all__ = ["ConnectorMatrix"]
+
+
+class MatrixException(Exception):
+    """
+    Wrap a matrix-nio Error in an Exception so it can raised.
+    """
+    def __init__(self, nio_error):
+        self.nio_error = nio_error
 
 
 def ensure_room_id_and_send(func):
@@ -57,10 +65,16 @@ def ensure_room_id_and_send(func):
                 event.target = response.room_id
 
         try:
-            return await func(self, event)
+            return_val = await func(self, event)
         except aiohttp.client_exceptions.ServerDisconnectedError:
             _LOGGER.debug(_("Server had disconnected, retrying send."))
-            return await func(self, event)
+            return_val = await func(self, event)
+
+        # If the send call returns a matrix-nio error then we raise it
+        if isinstance(return_val, nio.responses.ErrorResponse):
+            raise MatrixException(return_val)
+
+        return return_val
 
     return ensure_room_id
 
@@ -165,6 +179,9 @@ class ConnectorMatrix(Connector):
         """Create connection object with chat library."""
 
         if self._allow_encryption:
+            _LOGGER.debug(
+                f"Using {self.store_path} for the matrix client store."
+            )
             Path(self.store_path).mkdir(exist_ok=True)
 
         config = nio.AsyncClientConfig(
@@ -264,6 +281,8 @@ class ConnectorMatrix(Connector):
                     if event.sender != self.mxid:
                         if event.source["type"] == "m.room.member":
                             event.source["content"] = event.content
+                        if isinstance(event, nio.MegolmEvent):
+                            _LOGGER.error(f"Failed to decrypt event {event}")
                         return await self._event_creator.create_event(
                             event.source, roomid
                         )
